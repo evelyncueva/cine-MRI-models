@@ -5,7 +5,7 @@ Contact: marc.vornehm@fau.de, rizwan.ahmad@osumc.edu
 ## Publication
 Please cite the [original publication](https://onlinelibrary.wiley.com/doi/full/10.1002/mrm.70000) as follows:
 
-> Vornehm M, Chen C, Sultan MA, et al. Multi-dynamic deep image prior for cardiac MRI. *Magn Reson Med.* 2025; Early View. doi: 10.1002/mrm.70000
+> Vornehm M, Chen C, Sultan MA, et al. Multi-dynamic deep image prior for cardiac MRI. *Magn Reson Med.* 2025; 94(6): 2668-2679. doi: 10.1002/mrm.70000
 
 Additionally, a preprint is available on [arXiv](https://arxiv.org/abs/2412.04639).
 

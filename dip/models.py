@@ -304,13 +304,7 @@ class FlowGenerator(MyBaseModule):
         self.flow.weight = nn.Parameter(dist.normal.Normal(0, 1e-5).sample(self.flow.weight.shape))
         self.flow.bias = nn.Parameter(torch.zeros(self.flow.bias.shape))  # type: ignore
 
-        # flag to activate/deactivate flow generation
-        self.generate_flow = True
-
     def forward(self, x: torch.Tensor):
-        if not self.generate_flow:
-            return torch.zeros(x.shape[0], 2, *self.get_output_size(), device=x.device, dtype=x.dtype)
-
         # pass through MLP
         x = self.mlp(x)
 

@@ -52,6 +52,9 @@ class Dataset(ABC):
             return self._k_t[self._sl].copy()
 
     def get_physio(self, id: int, normalize: bool = True):
+        if id not in self._physio:
+            logging.warning(f'Physio signal with ID {id} not found, returning None')
+            return None
         p = self._get_physio(self._physio[id], 'data')
         if normalize:
             mean = np.mean(p, axis=0, keepdims=True)
@@ -61,6 +64,9 @@ class Dataset(ABC):
         return p
 
     def get_physio_t(self, id: int):
+        if id not in self._physio:
+            logging.warning(f'Physio signal with ID {id} not found, returning None')
+            return None
         return self._get_physio(self._physio[id], 'time')
 
     def _get_physio(self, physio: PhysioSignal, attr: str):
@@ -269,7 +275,11 @@ class MRDDataset(Dataset):
         logging.info(f'Loading file {self.filename}')
 
         dset = ismrmrd.Dataset(self.filename, 'dataset', create_if_needed=False)
-        nWav = dset.number_of_waveforms()
+        try:
+            nWav = dset.number_of_waveforms()
+        except LookupError:
+            logging.warning('This dataset does not contain any waveforms, skipping physio data.')
+            return
 
         physio_data = defaultdict(list)
         physio_timestamps = defaultdict(list)

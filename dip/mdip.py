@@ -146,8 +146,10 @@ class MDIP:
         frame = torch.view_as_complex(frame.moveaxis(0, -1).contiguous())  # [x, y]
         return frame
 
-    def forward_(self, noise_reg: float = 0, batch_start: int = 0, batch_end: int = -1) \
-            -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward_(
+        self, noise_reg: float = 0, batch_start: int = 0, batch_end: int = -1, generate_flow: bool = True,
+        moco: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         # generate spatial basis functions
         basis = self.generate_basis(noise_reg)  # [basis, x, y]
 
@@ -160,7 +162,15 @@ class MDIP:
         coeffs = self.generate_coefficients(zt_batch)[..., None, None]  # [frame, basis, 1, 1]
 
         # generate flow fields
-        flow = self.generate_flow_fields(zt_batch)  # [frame, 2, x, y]
+        if generate_flow:
+            flow = self.generate_flow_fields(zt_batch)  # [frame, 2, x, y]
+        else:
+            flow_shape = (self.n_frames, 2, basis.shape[1], basis.shape[2])
+            flow = torch.zeros(flow_shape, dtype=zt_batch.dtype, device=zt_batch.device)
+
+        # for motion compensation, take only the deformation field of the first frame
+        if moco:
+            flow = flow[0:1].expand_as(flow)
 
         # generate and stack frames
         frames = []
@@ -178,8 +188,8 @@ class MDIP:
 
         return cine, basis, coeffs, flow
 
-    def forward(self, noise_reg: float = 0) -> torch.Tensor:
-        cine, _, _, _ = self.forward_(noise_reg=noise_reg)
+    def forward(self, noise_reg: float = 0, generate_flow: bool = True, moco: bool = False) -> torch.Tensor:
+        cine, _, _, _ = self.forward_(noise_reg=noise_reg, generate_flow=generate_flow, moco=moco)
         return cine
 
     def optimize(
@@ -215,17 +225,13 @@ class MDIP:
             optimizer2, T_max=n_iter, eta_min=self.lr_min * self.lr_static_factor,
         )
 
-        # deactivate flow generator
-        self.flow_gen.generate_flow = False
-
         pbar = tqdm(range(n_iter))
         for i in pbar:
             optimizer1.zero_grad()
             optimizer2.zero_grad()
 
-            # activate flow generator
-            if i >= activate_flow_after:
-                self.flow_gen.generate_flow = True
+            # whether to use flow generator
+            generate_flow = (i >= activate_flow_after)
 
             # select random mini-batch
             if batch_size < k.shape[0]:
@@ -241,7 +247,7 @@ class MDIP:
             # run forward pass
             noise_reg_i = self.noise_reg * (1 - 0.9 * i / n_iter)
             cine, basis, coeffs, flow = self.forward_(
-                noise_reg=noise_reg_i, batch_start=batch_start, batch_end=batch_end,
+                noise_reg=noise_reg_i, batch_start=batch_start, batch_end=batch_end, generate_flow=generate_flow,
             )
 
             # k-space loss
@@ -291,7 +297,7 @@ class MDIP:
             # save intermediate results
             if save_every > 0 and (i == 0 or (i+1) % save_every == 0):
                 with self.no_grad_and_eval():
-                    cine, basis, coeffs, flow = self.forward_()
+                    cine, basis, coeffs, flow = self.forward_(generate_flow=generate_flow)
                 suffix = f'_epoch_{i+1:05d}'
                 self.save_cine(cine, suffix=suffix, equalize_histogram=True, as_npy=False)
                 self.save_basis(basis, suffix=suffix)
@@ -306,7 +312,7 @@ class MDIP:
                 if monitor_gt is None:
                     raise ValueError('Ground truth cine data must be provided for monitoring')
                 with self.no_grad_and_eval():
-                    cine = self.forward()
+                    cine = self.forward(generate_flow=generate_flow)
                 metrics = evaluate.get_metrics(np.abs(monitor_gt), np.abs(cine.cpu().numpy()))
                 self.metrics['SSIM'].append(metrics['SSIM'].item())
                 self.metrics['PSNR'].append(metrics['PSNR'].item())
