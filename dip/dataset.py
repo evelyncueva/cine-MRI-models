@@ -25,6 +25,9 @@ class Dataset(ABC):
         self._k: np.ndarray  # [slice, frame, coil, kx, ky]
         self._k_t: np.ndarray  # [slice, frame, ky]
 
+        self.pad_left: int = 0
+        self.pad_right: int = 0
+
         self.header: ismrmrd.xsd.ismrmrdHeader
         self.tres: int
         self.recon_size: tuple[int, int]
@@ -50,6 +53,14 @@ class Dataset(ABC):
             return self._k_t.copy()
         else:
             return self._k_t[self._sl].copy()
+
+    @property
+    def m(self):
+        k = self.k
+        m = (np.abs(k) > 0).astype(np.int8)
+        m[..., :self.pad_left] = 1
+        m[..., m.shape[-1]-self.pad_right:] = 1
+        return m
 
     def get_physio(self, id: int, normalize: bool = True):
         if id not in self._physio:
@@ -254,19 +265,24 @@ class MRDDataset(Dataset):
 
     def apply_phase_padding(self):
         enc = self.header.encoding[0]
-        enc_mat_y = enc.encodedSpace.matrixSize.y  # type: ignore
+        enc_mat_x: int = enc.encodedSpace.matrixSize.x  # type: ignore
+        enc_mat_y: int = enc.encodedSpace.matrixSize.y  # type: ignore
+        enc_fov_x: float = enc.encodedSpace.fieldOfView_mm.x  # type: ignore
+        enc_fov_y: float = enc.encodedSpace.fieldOfView_mm.y  # type: ignore
+        if round((enc_fov_x / enc_fov_y) / (enc_mat_x / enc_mat_y)) == 2:
+            enc_mat_y //= 2
         enc_lim_center = enc.encodingLimits.kspace_encoding_step_1.center  # type: ignore
         enc_lim_max = enc.encodingLimits.kspace_encoding_step_1.maximum  # type: ignore
-        pad_left = enc_mat_y // 2 - enc_lim_center
-        pad_right = enc_mat_y - pad_left - enc_lim_max - 1
+        self.pad_left = enc_mat_y // 2 - enc_lim_center
+        self.pad_right = enc_mat_y - self.pad_left - enc_lim_max - 1
 
-        if pad_left < 0 or pad_right < 0:
+        if self.pad_left < 0 or self.pad_right < 0:
             raise ValueError('Phase padding is negative')
-        if pad_left == 0 and pad_right == 0:
+        if self.pad_left == 0 and self.pad_right == 0:
             return
 
-        self._k = np.pad(self._k, ((0, 0),) * 4 + ((pad_left, pad_right),), mode='constant', constant_values=0)
-        self._k_t = np.pad(self._k_t, ((0, 0),) * 2 + ((pad_left, pad_right),), mode='constant', constant_values=-1)
+        self._k = np.pad(self._k, ((0, 0),) * 4 + ((self.pad_left, self.pad_right),), mode='constant', constant_values=0)
+        self._k_t = np.pad(self._k_t, ((0, 0),) * 2 + ((self.pad_left, self.pad_right),), mode='constant', constant_values=-1)
 
     def read_physio(self):
         if not os.path.isfile(self.filename):
