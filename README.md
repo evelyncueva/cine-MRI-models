@@ -1,5 +1,7 @@
 # Multi-Dynamic Deep Image Prior (M-DIP)
 
+This repository is a clone of the original M-DIP codebase with additional support for radial acquisition patterns, including radial train-data loading and radial data-consistency integration.
+
 Contact: marc.vornehm@fau.de, rizwan.ahmad@osumc.edu
 
 ## Publication
@@ -26,6 +28,28 @@ To run LR-DIP for comparison, create a separate environment based on Python 3.12
 Raw data should be placed in a subdirectory `data/`.
 The in-vivo data used in our [publication](#publication) cannot be published.
 Instead, we recommend using real-time cine data from the [OCMR dataset](https://ocmr.info), ideally with at least 100 frames.
+
+For radial multi-slice cardiac cine experiments, organize preprocessed train data as one `.npz` file per slice or view. Each file should contain radial k-space samples, trajectory/bin information, and coil sensitivity maps using the following fields:
+
+- `Y_data`: complex radial k-space samples with shape `[spoke, coil, readout, 1]`.
+- `X_data`: radial sample metadata with shape `[spoke, 2]`, where column 0 is the spoke angle in radians and column 1 is the normalized temporal bin.
+- `csm`: complex coil sensitivity maps with shape `[coil, x, y]`.
+- `recon_fs`, `recon_sense`, or similar optional reference reconstructions with shape `[x, y, frame]`.
+- `hollow_mask`: optional spatial mask with shape `[x, y]`.
+
+A typical directory layout is:
+
+```text
+data/
+  <dataset_name>/
+    traindata/
+      slice_1_8_nbins30.npz
+      slice_2_8_nbins30.npz
+    raw/
+    recons/
+```
+
+The radial notebook expects `raw_folder` to point to the `traindata/` directory and `filename` to select the slice-specific `.npz` file.
 
 ## Implemented methods
 - M-DIP: in `M-DIP.ipynb`
