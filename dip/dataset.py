@@ -8,6 +8,7 @@ import ismrmrd
 import numpy as np
 import scipy.io
 import scipy.signal
+import sigpy
 import sigpy.mri
 from tqdm import tqdm
 
@@ -419,4 +420,220 @@ class PhantomDataset(Dataset):
 
     def crop_readout_oversampling(self):
         # do nothing, phantom data does not have readout oversampling
+        pass
+
+
+class RadialMatDataset(Dataset):
+    """Loader for binned radial MATLAB files with data/traj/bins arrays."""
+
+    def __init__(self, filename: Path | str):
+        super().__init__(filename)
+        self.trajectory: np.ndarray  # [frame, readout, spoke, 2], normalized to [-1, 1]
+        self._trajectory_sigpy: np.ndarray  # [frame, readout, spoke, 2], in SigPy coordinates
+        self.read_data()
+
+    @staticmethod
+    def can_load(filename: Path | str) -> bool:
+        try:
+            data = scipy.io.loadmat(filename, variable_names=['data', 'traj', 'bins'])
+        except (FileNotFoundError, NotImplementedError, ValueError):
+            return False
+        return {'data', 'traj', 'bins'}.issubset(data)
+
+    def read_data(self):
+        if not os.path.isfile(self.filename):
+            raise FileNotFoundError(f'File not found: {self.filename}')
+
+        logging.info(f'Loading radial MATLAB file {self.filename}')
+        mat = scipy.io.loadmat(self.filename)
+        raw = mat['data'].astype(np.complex64)  # [readout, spoke, coil]
+        traj = mat['traj'].astype(np.float32)  # [readout, spoke, 2]
+        bins = mat['bins'].squeeze()
+        info = mat.get('info')
+
+        n_readout, _, n_coils = raw.shape
+        bin_ids = np.unique(bins)
+        n_frames = len(bin_ids)
+        max_spokes = max(int(np.count_nonzero(bins == bin_id)) for bin_id in bin_ids)
+
+        self._k = np.zeros((1, n_frames, n_coils, n_readout, max_spokes), dtype=np.complex64)
+        self.trajectory = np.zeros((n_frames, n_readout, max_spokes, 2), dtype=np.float32)
+        self._trajectory_sigpy = np.zeros_like(self.trajectory)
+        self._k_t = np.full((1, n_frames, max_spokes), -1, dtype=np.float64)
+
+        for frame, bin_id in enumerate(bin_ids):
+            spoke_idx = np.flatnonzero(bins == bin_id)
+            n_spokes = len(spoke_idx)
+            self._k[0, frame, :, :, :n_spokes] = raw[:, spoke_idx, :].transpose(2, 0, 1)
+            self.trajectory[frame, :, :n_spokes] = traj[:, spoke_idx]
+            self._trajectory_sigpy[frame, :, :n_spokes] = traj[:, spoke_idx]
+            self._k_t[0, frame, :n_spokes] = frame
+
+        coord_scale = np.max(np.abs(self.trajectory))
+        if coord_scale == 0:
+            raise ValueError('Radial trajectory is all zeros')
+        self.trajectory = np.clip(self.trajectory / coord_scale, -1, 1)
+
+        nx = n_readout
+        if info is not None and info.dtype.names and 'Nx' in info.dtype.names:
+            nx = int(np.asarray(info['Nx'].item()).squeeze())
+        self.recon_size = (nx, nx)
+        self.tres = 1
+        self.noise = np.empty((n_coils, n_readout, 0), dtype=np.complex64)
+        self.header = ismrmrd.xsd.ismrmrdHeader()
+
+    @property
+    def matrix_size(self):
+        return (self._k.shape[3], self._k.shape[3])
+
+    @property
+    def m(self):
+        return (np.abs(self.k) > 0).astype(np.int8)
+
+    @property
+    def trajectory_for_slice(self):
+        return self.trajectory.copy()
+
+    def coil_images(self, k: np.ndarray | None = None) -> np.ndarray:
+        """Return adjoint NUFFT coil images for visualization/sensitivity maps."""
+        if k is None:
+            k = self.k
+        n_frames, n_coils = k.shape[:2]
+        coord = self._trajectory_sigpy.reshape(-1, 2)
+        images = np.zeros((n_coils, *self.matrix_size), dtype=np.complex64)
+        for coil in range(n_coils):
+            samples = k[:, coil].reshape(n_frames, -1).reshape(-1)
+            images[coil] = sigpy.nufft_adjoint(samples, coord, oshape=self.matrix_size)
+        return images
+
+    def estimate_sens_maps(self, k: np.ndarray | None = None) -> np.ndarray:
+        """Estimate coil sensitivity maps from radial adjoint images."""
+        coil_images = self.coil_images(k)
+        rss = np.sqrt(np.sum(np.abs(coil_images) ** 2, axis=0, keepdims=True))
+        rss[rss == 0] = 1
+        return (coil_images / rss).astype(np.complex64)
+
+    def get_physio(self, id: int, normalize: bool = True):
+        return None
+
+    def get_physio_t(self, id: int):
+        return None
+
+    def crop_readout_oversampling(self):
+        # Radial readout length defines the NUFFT/FFT grid used by this loader.
+        pass
+
+
+class RadialTrainDataset(Dataset):
+    """Loader for AA traindata .npz files with Y_data/X_data/csm arrays."""
+
+    def __init__(self, filename: Path | str):
+        super().__init__(filename)
+        self.trajectory: np.ndarray  # [frame, readout, spoke, 2], normalized to [-1, 1]
+        self._trajectory_sigpy: np.ndarray  # [frame, readout, spoke, 2], in SigPy coordinates
+        self.sens_maps: np.ndarray  # [coil, x, y]
+        self.ground_truth: np.ndarray | None = None  # [slice, frame, x, y]
+        self.hollow_mask: np.ndarray | None = None
+        self.read_data()
+
+    @staticmethod
+    def can_load(filename: Path | str) -> bool:
+        if Path(filename).suffix != '.npz':
+            return False
+        try:
+            with np.load(filename, allow_pickle=True) as data:
+                return {'Y_data', 'X_data', 'csm'}.issubset(data.files)
+        except (FileNotFoundError, ValueError):
+            return False
+
+    def read_data(self):
+        if not os.path.isfile(self.filename):
+            raise FileNotFoundError(f'File not found: {self.filename}')
+
+        logging.info(f'Loading radial train file {self.filename}')
+        with np.load(self.filename, allow_pickle=True) as npz:
+            y_data = npz['Y_data'].astype(np.complex64)  # [spoke, coil, readout, singleton]
+            x_data = npz['X_data'].astype(np.float32)  # [spoke, angle/time]
+            self.sens_maps = npz['csm'].astype(np.complex64)
+            self.hollow_mask = npz['hollow_mask'].astype(np.float32) if 'hollow_mask' in npz.files else None
+            if 'recon_fs' in npz.files:
+                self.ground_truth = npz['recon_fs'].astype(np.complex64).transpose(2, 0, 1)[None]
+
+        angles = x_data[:, 0]
+        frame_values = x_data[:, 1]
+        frame_ids = np.unique(frame_values)
+        n_frames = len(frame_ids)
+        n_readout = y_data.shape[2]
+        n_coils = y_data.shape[1]
+        max_spokes = max(int(np.count_nonzero(frame_values == frame_id)) for frame_id in frame_ids)
+
+        self._k = np.zeros((1, n_frames, n_coils, n_readout, max_spokes), dtype=np.complex64)
+        self.trajectory = np.zeros((n_frames, n_readout, max_spokes, 2), dtype=np.float32)
+        self._trajectory_sigpy = np.zeros_like(self.trajectory)
+        self._k_t = np.full((1, n_frames, max_spokes), -1, dtype=np.float64)
+
+        readout = np.linspace(-1, 1, n_readout, dtype=np.float32)
+        readout_sigpy = readout * n_readout / 2
+        for frame, frame_id in enumerate(frame_ids):
+            spoke_idx = np.flatnonzero(frame_values == frame_id)
+            n_spokes = len(spoke_idx)
+            self._k[0, frame, :, :, :n_spokes] = y_data[spoke_idx, :, :, 0].transpose(1, 2, 0)
+
+            theta = angles[spoke_idx]
+            coords = np.stack(
+                [
+                    readout[:, None] * np.cos(theta)[None],
+                    readout[:, None] * np.sin(theta)[None],
+                ],
+                axis=-1,
+            )
+            coords_sigpy = np.stack(
+                [
+                    readout_sigpy[:, None] * np.cos(theta)[None],
+                    readout_sigpy[:, None] * np.sin(theta)[None],
+                ],
+                axis=-1,
+            )
+            self.trajectory[frame, :, :n_spokes] = coords
+            self._trajectory_sigpy[frame, :, :n_spokes] = coords_sigpy
+            self._k_t[0, frame, :n_spokes] = frame
+
+        self.recon_size = self.sens_maps.shape[-2:]
+        self.tres = 1
+        self.noise = np.empty((n_coils, n_readout, 0), dtype=np.complex64)
+        self.header = ismrmrd.xsd.ismrmrdHeader()
+
+    @property
+    def matrix_size(self):
+        return self.sens_maps.shape[-2:]
+
+    @property
+    def m(self):
+        return (np.abs(self.k) > 0).astype(np.int8)
+
+    @property
+    def trajectory_for_slice(self):
+        return self.trajectory.copy()
+
+    def coil_images(self, k: np.ndarray | None = None) -> np.ndarray:
+        if k is None:
+            k = self.k
+        n_frames, n_coils = k.shape[:2]
+        coord = self._trajectory_sigpy.reshape(-1, 2)
+        images = np.zeros((n_coils, *self.matrix_size), dtype=np.complex64)
+        for coil in range(n_coils):
+            samples = k[:, coil].reshape(n_frames, -1).reshape(-1)
+            images[coil] = sigpy.nufft_adjoint(samples, coord, oshape=self.matrix_size)
+        return images
+
+    def estimate_sens_maps(self, k: np.ndarray | None = None) -> np.ndarray:
+        return self.sens_maps.copy()
+
+    def get_physio(self, id: int, normalize: bool = True):
+        return None
+
+    def get_physio_t(self, id: int):
+        return None
+
+    def crop_readout_oversampling(self):
         pass

@@ -7,12 +7,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.types
 from tqdm import tqdm
 
 from . import evaluate, models, plotting
 from .fft_torch import fftnc
 from .loss import TVLoss
+
+
+def _sample_fft_grid(k_grid: torch.Tensor, trajectory: torch.Tensor) -> torch.Tensor:
+    """Sample Cartesian FFT data at normalized radial coordinates.
+
+    Args:
+        k_grid: Complex Cartesian k-space, [frame, coil, x, y].
+        trajectory: Normalized coordinates in [-1, 1], [frame, readout, spoke, 2].
+    """
+    n_frames, n_coils = k_grid.shape[:2]
+    grid = trajectory.reshape(n_frames, -1, 1, 2)
+    sampled = []
+    for coil in range(n_coils):
+        channel = torch.view_as_real(k_grid[:, coil]).permute(0, 3, 1, 2)
+        channel_sampled = F.grid_sample(channel, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
+        channel_sampled = channel_sampled[:, :, :, 0].permute(0, 2, 1).contiguous()
+        sampled.append(torch.view_as_complex(channel_sampled))
+    return torch.stack(sampled, dim=1).reshape(n_frames, n_coils, *trajectory.shape[1:3])
 
 
 class MDIP:
@@ -195,7 +214,7 @@ class MDIP:
     def optimize(
         self, k: torch.Tensor, sens: torch.Tensor, mask: torch.Tensor, n_iter: int, save_every: int,
         activate_flow_after: int = 0, batch_size: int = -1, monitor_every: int = -1,
-        monitor_gt: np.ndarray | None = None,
+        monitor_gt: np.ndarray | None = None, trajectory: torch.Tensor | None = None,
     ):
         if batch_size <= 0 or batch_size > k.shape[0]:
             batch_size = k.shape[0]
@@ -243,6 +262,7 @@ class MDIP:
                 batch_end = k.shape[0]
             mask_batch = mask[batch_start:batch_end]
             k_batch = torch.view_as_real(k[batch_start:batch_end])
+            trajectory_batch = trajectory[batch_start:batch_end] if trajectory is not None else None
 
             # run forward pass
             noise_reg_i = self.noise_reg * (1 - 0.9 * i / n_iter)
@@ -252,7 +272,11 @@ class MDIP:
 
             # k-space loss
             cine_tmp = cine[:, None] * sens[None]  # [frame, coil, x, y]
-            k_pred = mask_batch * fftnc(cine_tmp, [2, 3])  # [frame, coil, x, y]
+            k_grid = fftnc(cine_tmp, [2, 3])  # [frame, coil, x, y]
+            if trajectory_batch is None:
+                k_pred = mask_batch * k_grid  # [frame, coil, x, y]
+            else:
+                k_pred = mask_batch * _sample_fft_grid(k_grid, trajectory_batch)  # [frame, coil, readout, spoke]
             k_pred = torch.view_as_real(k_pred)  # [frame, coil, x, y, 2]
             kspace_loss = self.kspace_loss(k_pred, k_batch)
             kspace_loss = kspace_loss / torch.count_nonzero(k_batch)
