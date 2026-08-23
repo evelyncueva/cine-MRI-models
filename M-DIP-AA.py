@@ -106,8 +106,17 @@ def main():
     print(f'Using device: {device}')
 
     input_path = Path(args.raw_folder) / args.filename
+    if not input_path.exists():
+        raise FileNotFoundError(
+            f'Input file not found: {input_path.resolve()}\n'
+            'Copy the radial .npz file to this path, or pass the correct folder with '
+            '`--raw-folder /path/to/traindata` or `RAW_FOLDER=/path/to/traindata ./run_mdip_condor.sh ...`.'
+        )
     if not RadialTrainDataset.can_load(input_path):
-        raise ValueError(f'Unsupported radial train-data file: {input_path}')
+        raise ValueError(
+            f'Unsupported radial train-data file: {input_path.resolve()}\n'
+            'Expected a .npz file containing Y_data, X_data, and csm.'
+        )
 
     output_path = build_output_path(args.out_folder, args.filename, args.slice_idx)
     data = RadialTrainDataset(input_path)
