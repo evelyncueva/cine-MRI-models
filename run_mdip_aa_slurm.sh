@@ -37,6 +37,7 @@ NO_FLOW="${NO_FLOW:-0}"
 NO_MASK="${NO_MASK:-0}"
 ACTIVATE_FLOW_AFTER="${ACTIVATE_FLOW_AFTER:-0}"
 KSP_SCALE="${KSP_SCALE:-100}"
+RADIAL_OPERATOR="${RADIAL_OPERATOR:-nufft}"
 
 ZS_CHANS="${ZS_CHANS:-2}"
 ZT_CHANS="${ZT_CHANS:-4}"
@@ -123,6 +124,7 @@ BATCH_SIZE=${BATCH_SIZE}
 SAVE_EVERY=${SAVE_EVERY}
 MONITOR_EVERY=${MONITOR_EVERY}
 KSP_SCALE=${KSP_SCALE}
+RADIAL_OPERATOR=${RADIAL_OPERATOR}
 NO_FLOW=${NO_FLOW}
 NO_MASK=${NO_MASK}
 ACTIVATE_FLOW_AFTER=${ACTIVATE_FLOW_AFTER}
@@ -161,6 +163,7 @@ EOF
             --lambda-zt "${LAMBDA_ZT}" \
             --lambda-basis "${LAMBDA_BASIS}" \
             --ksp-scale "${KSP_SCALE}" \
+            --radial-operator "${RADIAL_OPERATOR}" \
             --activate-flow-after "${ACTIVATE_FLOW_AFTER}" \
             "${EXTRA_ARGS[@]}"
 

@@ -34,6 +34,21 @@ def _sample_fft_grid(k_grid: torch.Tensor, trajectory: torch.Tensor) -> torch.Te
     return torch.stack(sampled, dim=1).reshape(n_frames, n_coils, *trajectory.shape[1:3])
 
 
+def _sample_nufft(
+    cine: torch.Tensor,
+    sens: torch.Tensor,
+    trajectory: torch.Tensor,
+    nufft_op,
+) -> torch.Tensor:
+    """Apply a differentiable radial NUFFT using torchkbnufft."""
+    n_frames = cine.shape[0]
+    ktraj = torch.pi * trajectory.permute(0, 3, 1, 2).reshape(n_frames, 2, -1)
+    image = cine[:, None]
+    smaps = sens[None].expand(n_frames, -1, -1, -1)
+    k_pred = nufft_op(image, ktraj, smaps=smaps)
+    return k_pred.reshape(n_frames, sens.shape[0], *trajectory.shape[1:3])
+
+
 class MDIP:
     def __init__(
         self,
@@ -215,10 +230,23 @@ class MDIP:
         self, k: torch.Tensor, sens: torch.Tensor, mask: torch.Tensor, n_iter: int, save_every: int,
         activate_flow_after: int = 0, batch_size: int = -1, monitor_every: int = -1,
         monitor_gt: np.ndarray | None = None, trajectory: torch.Tensor | None = None,
-        image_mask: torch.Tensor | None = None,
+        image_mask: torch.Tensor | None = None, radial_operator: str = 'grid',
     ):
         if batch_size <= 0 or batch_size > k.shape[0]:
             batch_size = k.shape[0]
+        if trajectory is None:
+            radial_operator = 'cartesian'
+        if radial_operator not in ('cartesian', 'grid', 'nufft'):
+            raise ValueError(f'Unknown radial operator: {radial_operator}')
+        nufft_op = None
+        if radial_operator == 'nufft':
+            try:
+                import torchkbnufft as tkbn
+            except ImportError as e:
+                raise ImportError(
+                    'radial_operator="nufft" requires torchkbnufft. Install it in the m-dip environment.'
+                ) from e
+            nufft_op = tkbn.KbNufft(im_size=self.matrix_size).to(device=k.device)
 
         # prepare optimizer
         params_basis_gen = list(self.basis_gen.parameters())
@@ -275,11 +303,16 @@ class MDIP:
 
             # k-space loss
             cine_tmp = cine[:, None] * sens[None]  # [frame, coil, x, y]
-            k_grid = fftnc(cine_tmp, [2, 3])  # [frame, coil, x, y]
-            if trajectory_batch is None:
+            if radial_operator == 'cartesian':
+                k_grid = fftnc(cine_tmp, [2, 3])  # [frame, coil, x, y]
                 k_pred = mask_batch * k_grid  # [frame, coil, x, y]
-            else:
+            elif radial_operator == 'grid':
+                k_grid = fftnc(cine_tmp, [2, 3])  # [frame, coil, x, y]
+                assert trajectory_batch is not None
                 k_pred = mask_batch * _sample_fft_grid(k_grid, trajectory_batch)  # [frame, coil, readout, spoke]
+            else:
+                assert trajectory_batch is not None
+                k_pred = mask_batch * _sample_nufft(cine, sens, trajectory_batch, nufft_op)
             k_pred = torch.view_as_real(k_pred)  # [frame, coil, x, y, 2]
             kspace_loss = self.kspace_loss(k_pred, k_batch)
             kspace_loss = kspace_loss / torch.count_nonzero(k_batch)

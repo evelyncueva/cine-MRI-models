@@ -580,14 +580,14 @@ class RadialTrainDataset(Dataset):
             self._k[0, frame, :, :, :n_spokes] = y_data[spoke_idx, :, :, 0].transpose(1, 2, 0)
 
             theta = angles[spoke_idx]
-            coords = np.stack(
+            coords = -np.stack(
                 [
                     readout[:, None] * np.cos(theta)[None],
                     readout[:, None] * np.sin(theta)[None],
                 ],
                 axis=-1,
             )
-            coords_sigpy = np.stack(
+            coords_sigpy = -np.stack(
                 [
                     readout_sigpy[:, None] * np.cos(theta)[None],
                     readout_sigpy[:, None] * np.sin(theta)[None],

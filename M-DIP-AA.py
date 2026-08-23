@@ -56,6 +56,10 @@ def parse_args():
     parser.add_argument('--ksp-scale', type=float, default=100)
     parser.add_argument('--monitor-every', type=int, default=50, help='Metric interval when reference data is present.')
     parser.add_argument('--no-mask', action='store_true', help='Do not apply hollow_mask from the .npz file.')
+    parser.add_argument(
+        '--radial-operator', choices=('nufft', 'grid'), default='nufft',
+        help='Radial data-consistency operator. Use nufft for reconstruction quality; grid is a fast approximation.',
+    )
     return parser.parse_args()
 
 
@@ -245,6 +249,7 @@ def main():
         monitor_gt=data.ground_truth[args.slice_idx] * args.ksp_scale / k_max if has_reference else None,
         trajectory=trajectory_tor.to(device=device),
         image_mask=image_mask_tor.to(device=device) if image_mask_tor is not None else None,
+        radial_operator=args.radial_operator,
     )
     mdip.save()
     save_loss_plot(mdip)
