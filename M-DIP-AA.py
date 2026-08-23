@@ -55,6 +55,7 @@ def parse_args():
     parser.add_argument('--lambda-basis', type=float, default=0)
     parser.add_argument('--ksp-scale', type=float, default=100)
     parser.add_argument('--monitor-every', type=int, default=50, help='Metric interval when reference data is present.')
+    parser.add_argument('--no-mask', action='store_true', help='Do not apply hollow_mask from the .npz file.')
     return parser.parse_args()
 
 
@@ -133,6 +134,10 @@ def main():
     m = data.m.astype(np.int8)[:, 0]
     sens_maps = data.estimate_sens_maps(k)
     trajectory = data.trajectory_for_slice
+    image_mask = None
+    if not args.no_mask and data.hollow_mask is not None:
+        image_mask = data.hollow_mask.astype(np.float32)
+        print('Applying hollow_mask in image domain.')
 
     img_avg = data.coil_images(k)
     plotting.plot_multichannel(
@@ -184,6 +189,9 @@ def main():
     m_tor = torch.from_numpy(m)[:, None].to(dtype=dtype)
     sen_tor = torch.from_numpy(sens_maps).to(dtype=torch.promote_types(dtype, torch.complex32))
     trajectory_tor = torch.from_numpy(trajectory).to(dtype=dtype)
+    image_mask_tor = None
+    if image_mask is not None:
+        image_mask_tor = torch.from_numpy(image_mask).to(dtype=dtype)
 
     zs = torch.empty(1, args.zs_chans, *code_vector_size, dtype=dtype).uniform_(0, 0.1)
     zt = torch.zeros(data.n_phases, args.zt_chans, dtype=dtype)
@@ -236,6 +244,7 @@ def main():
         monitor_every=args.monitor_every if has_reference else -1,
         monitor_gt=data.ground_truth[args.slice_idx] * args.ksp_scale / k_max if has_reference else None,
         trajectory=trajectory_tor.to(device=device),
+        image_mask=image_mask_tor.to(device=device) if image_mask_tor is not None else None,
     )
     mdip.save()
     save_loss_plot(mdip)
@@ -244,6 +253,8 @@ def main():
 
     with mdip.no_grad_and_eval():
         cine, basis, coeffs, flow = mdip.forward_(generate_flow=not args.no_flow)
+        if image_mask_tor is not None:
+            cine = cine * image_mask_tor.to(device=cine.device)
         cine = cine.cpu().numpy() / args.ksp_scale * k_max
         basis = basis.cpu().numpy()
         coeffs = coeffs.cpu().numpy()

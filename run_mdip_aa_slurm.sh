@@ -34,6 +34,7 @@ SAVE_EVERY="${SAVE_EVERY:-100}"
 MONITOR_EVERY="${MONITOR_EVERY:-50}"
 CUDA_NUM="${CUDA_NUM:-0}"
 NO_FLOW="${NO_FLOW:-0}"
+NO_MASK="${NO_MASK:-0}"
 ACTIVATE_FLOW_AFTER="${ACTIVATE_FLOW_AFTER:-0}"
 KSP_SCALE="${KSP_SCALE:-100}"
 
@@ -103,6 +104,9 @@ for FILENAME in "${FILENAMES[@]}"; do
           if [ "${NO_FLOW}" -eq 1 ]; then
             EXTRA_ARGS+=(--no-flow)
           fi
+          if [ "${NO_MASK}" -eq 1 ]; then
+            EXTRA_ARGS+=(--no-mask)
+          fi
 
           cat > "${EXP_DIR}/config_run.txt" <<EOF
 DATA_NAME=${DATA_NAME}
@@ -120,6 +124,7 @@ SAVE_EVERY=${SAVE_EVERY}
 MONITOR_EVERY=${MONITOR_EVERY}
 KSP_SCALE=${KSP_SCALE}
 NO_FLOW=${NO_FLOW}
+NO_MASK=${NO_MASK}
 ACTIVATE_FLOW_AFTER=${ACTIVATE_FLOW_AFTER}
 
 N_BASES=${N_BASES}
