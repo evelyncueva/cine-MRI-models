@@ -230,7 +230,7 @@ class MDIP:
         self, k: torch.Tensor, sens: torch.Tensor, mask: torch.Tensor, n_iter: int, save_every: int,
         activate_flow_after: int = 0, batch_size: int = -1, monitor_every: int = -1,
         monitor_gt: np.ndarray | None = None, trajectory: torch.Tensor | None = None,
-        image_mask: torch.Tensor | None = None, radial_operator: str = 'grid',
+        radial_operator: str = 'grid',
     ):
         if batch_size <= 0 or batch_size > k.shape[0]:
             batch_size = k.shape[0]
@@ -298,8 +298,6 @@ class MDIP:
             cine, basis, coeffs, flow = self.forward_(
                 noise_reg=noise_reg_i, batch_start=batch_start, batch_end=batch_end, generate_flow=generate_flow,
             )
-            if image_mask is not None:
-                cine = cine * image_mask
 
             # k-space loss
             cine_tmp = cine[:, None] * sens[None]  # [frame, coil, x, y]
@@ -358,8 +356,6 @@ class MDIP:
             if save_every > 0 and (i == 0 or (i+1) % save_every == 0):
                 with self.no_grad_and_eval():
                     cine, basis, coeffs, flow = self.forward_(generate_flow=generate_flow)
-                    if image_mask is not None:
-                        cine = cine * image_mask
                 suffix = f'_epoch_{i+1:05d}'
                 self.save_cine(cine, suffix=suffix, equalize_histogram=True, as_npy=False)
                 self.save_basis(basis, suffix=suffix)
@@ -375,8 +371,6 @@ class MDIP:
                     raise ValueError('Ground truth cine data must be provided for monitoring')
                 with self.no_grad_and_eval():
                     cine = self.forward(generate_flow=generate_flow)
-                    if image_mask is not None:
-                        cine = cine * image_mask
                 metrics = evaluate.get_metrics(np.abs(monitor_gt), np.abs(cine.cpu().numpy()))
                 self.metrics['SSIM'].append(metrics['SSIM'].item())
                 self.metrics['PSNR'].append(metrics['PSNR'].item())
