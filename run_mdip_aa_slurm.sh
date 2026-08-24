@@ -76,7 +76,7 @@ echo "Raw folder: ${RAW_FOLDER}"
 echo "Results:    ${RESULTS_ROOT}"
 echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
 
-EXP_ID=0
+EXP_ID="${EXP_START:-2}"
 
 for FILENAME in "${FILENAMES[@]}"; do
   for LR in "${LEARNING_RATES[@]}"; do
