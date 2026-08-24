@@ -37,6 +37,8 @@ NO_FLOW="${NO_FLOW:-0}"
 ACTIVATE_FLOW_AFTER="${ACTIVATE_FLOW_AFTER:-0}"
 KSP_SCALE="${KSP_SCALE:-100}"
 RADIAL_OPERATOR="${RADIAL_OPERATOR:-grid}"
+USE_KSPACE_WEIGHTS="${USE_KSPACE_WEIGHTS:-1}"
+KSPACE_WEIGHT_FILTER="${KSPACE_WEIGHT_FILTER:-ramp}"
 
 ZS_CHANS="${ZS_CHANS:-2}"
 ZT_CHANS="${ZT_CHANS:-4}"
@@ -106,6 +108,9 @@ for FILENAME in "${FILENAMES[@]}"; do
           if [ "${NO_FLOW}" -eq 1 ]; then
             EXTRA_ARGS+=(--no-flow)
           fi
+          if [ "${USE_KSPACE_WEIGHTS}" -eq 0 ]; then
+            EXTRA_ARGS+=(--no-kspace-weights)
+          fi
 
           cat > "${EXP_DIR}/config_run.txt" <<EOF
 DATA_NAME=${DATA_NAME}
@@ -123,6 +128,8 @@ SAVE_EVERY=${SAVE_EVERY}
 MONITOR_EVERY=${MONITOR_EVERY}
 KSP_SCALE=${KSP_SCALE}
 RADIAL_OPERATOR=${RADIAL_OPERATOR}
+USE_KSPACE_WEIGHTS=${USE_KSPACE_WEIGHTS}
+KSPACE_WEIGHT_FILTER=${KSPACE_WEIGHT_FILTER}
 NO_FLOW=${NO_FLOW}
 ACTIVATE_FLOW_AFTER=${ACTIVATE_FLOW_AFTER}
 
@@ -165,6 +172,7 @@ EOF
             --lambda-support "${LAMBDA_SUPPORT}" \
             --ksp-scale "${KSP_SCALE}" \
             --radial-operator "${RADIAL_OPERATOR}" \
+            --kspace-weight-filter "${KSPACE_WEIGHT_FILTER}" \
             --activate-flow-after "${ACTIVATE_FLOW_AFTER}" \
             "${EXTRA_ARGS[@]}"
 

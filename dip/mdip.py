@@ -258,6 +258,7 @@ class MDIP:
         activate_flow_after: int = 0, batch_size: int = -1, monitor_every: int = -1,
         monitor_gt: np.ndarray | None = None, trajectory: torch.Tensor | None = None,
         radial_operator: str = 'grid', support_mask: torch.Tensor | None = None, lambda_support: float = 0,
+        kspace_weights: torch.Tensor | None = None,
     ):
         if batch_size <= 0 or batch_size > k.shape[0]:
             batch_size = k.shape[0]
@@ -317,7 +318,8 @@ class MDIP:
                 batch_start = 0
                 batch_end = k.shape[0]
             mask_batch = mask[batch_start:batch_end]
-            k_batch = torch.view_as_real(k[batch_start:batch_end])
+            k_batch_complex = k[batch_start:batch_end]
+            k_batch = torch.view_as_real(k_batch_complex)
             trajectory_batch = trajectory[batch_start:batch_end] if trajectory is not None else None
 
             # run forward pass
@@ -338,9 +340,13 @@ class MDIP:
             else:
                 assert trajectory_batch is not None
                 k_pred = mask_batch * _sample_nufft(cine, sens, trajectory_batch, nufft_op)
-            k_pred = torch.view_as_real(k_pred)  # [frame, coil, x, y, 2]
-            kspace_loss = self.kspace_loss(k_pred, k_batch)
-            kspace_loss = kspace_loss / torch.count_nonzero(k_batch)
+            if kspace_weights is None:
+                k_pred = torch.view_as_real(k_pred)  # [frame, coil, x, y, 2]
+                kspace_loss = self.kspace_loss(k_pred, k_batch)
+                kspace_loss = kspace_loss / torch.count_nonzero(k_batch)
+            else:
+                kspace_loss = torch.mean((torch.abs(k_pred - k_batch_complex) * kspace_weights) ** 2)
+                k_pred = torch.view_as_real(k_pred)  # [frame, coil, x, y, 2]
 
             # flow loss
             flow_loss_spatial = self.flow_loss(flow, dims=(2, 3))

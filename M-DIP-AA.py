@@ -60,6 +60,8 @@ def parse_args():
     parser.add_argument('--lambda-support', type=float, default=0, help='Penalty for image energy outside hollow_mask.')
     parser.add_argument('--ksp-scale', type=float, default=100)
     parser.add_argument('--monitor-every', type=int, default=50, help='Metric interval when reference data is present.')
+    parser.add_argument('--no-kspace-weights', action='store_true', help='Disable ST-DIP style radial frequency weights.')
+    parser.add_argument('--kspace-weight-filter', choices=('ramp', 'cosine', 'shepp-logan'), default='ramp')
     parser.add_argument(
         '--radial-operator', choices=('grid', 'nufft'), default='grid',
         help='Radial data-consistency operator. grid matches the ST-DIP FFT + bilinear sampler.',
@@ -82,6 +84,19 @@ def initialize_zt(n_frames: int, zt_chans: int, dtype: torch.dtype, mode: str) -
             channels.append(torch.sin(2 * torch.pi * harmonic * t))
         harmonic += 1
     return torch.stack(channels, dim=1)
+
+
+def get_weight_freqs(n_readout: int, filter_name: str = 'ramp') -> np.ndarray:
+    freqs = np.abs(-np.fft.fftshift(np.fft.fftfreq(n_readout) * n_readout)).astype(np.float32)
+    if filter_name == 'ramp':
+        filt = np.ones(n_readout, dtype=np.float32)
+    elif filter_name == 'cosine':
+        filt = np.sin(np.linspace(0, np.pi, n_readout, endpoint=False)).astype(np.float32)
+    elif filter_name == 'shepp-logan':
+        filt = np.fft.fftshift(np.sinc(np.fft.fftfreq(n_readout))).astype(np.float32)
+    else:
+        raise ValueError(f'Unknown k-space weight filter: {filter_name}')
+    return filt * freqs
 
 
 def build_output_path(out_folder: str, filename: str, slice_idx: int) -> Path:
@@ -216,6 +231,10 @@ def main():
     sen_tor = torch.from_numpy(sens_maps).to(dtype=torch.promote_types(dtype, torch.complex32))
     trajectory_tor = torch.from_numpy(trajectory).to(dtype=dtype)
     support_mask_tor = torch.from_numpy(support_mask).to(dtype=dtype) if support_mask is not None else None
+    kspace_weights_tor = None
+    if not args.no_kspace_weights:
+        weights = 1.0 + get_weight_freqs(k.shape[-2], args.kspace_weight_filter)
+        kspace_weights_tor = torch.from_numpy(weights).to(dtype=dtype)[None, None, :, None]
 
     zs = torch.empty(1, args.zs_chans, *code_vector_size, dtype=dtype).uniform_(0, 0.1)
     zt = initialize_zt(data.n_phases, args.zt_chans, dtype, args.zt_init)
@@ -271,6 +290,7 @@ def main():
         radial_operator=args.radial_operator,
         support_mask=support_mask_tor.to(device=device) if support_mask_tor is not None else None,
         lambda_support=args.lambda_support,
+        kspace_weights=kspace_weights_tor.to(device=device) if kspace_weights_tor is not None else None,
     )
     mdip.save()
     save_loss_plot(mdip)
