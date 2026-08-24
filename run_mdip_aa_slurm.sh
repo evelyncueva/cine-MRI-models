@@ -47,6 +47,7 @@ LR_STATIC_FACTOR="${LR_STATIC_FACTOR:-1}"
 WEIGHT_DECAY="${WEIGHT_DECAY:-0}"
 LAMBDA_ZT="${LAMBDA_ZT:-0}"
 LAMBDA_BASIS="${LAMBDA_BASIS:-0}"
+LAMBDA_SUPPORT="${LAMBDA_SUPPORT:-0}"
 
 # -------------------------
 # Grid parameters
@@ -133,6 +134,7 @@ LAMBDA_FLOW_SPATIAL=${LAMBDA_FLOW_SPATIAL}
 LAMBDA_FLOW_TEMPORAL=${LAMBDA_FLOW_TEMPORAL}
 LAMBDA_ZT=${LAMBDA_ZT}
 LAMBDA_BASIS=${LAMBDA_BASIS}
+LAMBDA_SUPPORT=${LAMBDA_SUPPORT}
 EOF
 
           python "${SCRIPT}" \
@@ -157,6 +159,7 @@ EOF
             --lambda-flow-temporal "${LAMBDA_FLOW_TEMPORAL}" \
             --lambda-zt "${LAMBDA_ZT}" \
             --lambda-basis "${LAMBDA_BASIS}" \
+            --lambda-support "${LAMBDA_SUPPORT}" \
             --ksp-scale "${KSP_SCALE}" \
             --radial-operator "${RADIAL_OPERATOR}" \
             --activate-flow-after "${ACTIVATE_FLOW_AFTER}" \

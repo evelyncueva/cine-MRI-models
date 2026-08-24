@@ -231,7 +231,7 @@ class MDIP:
         self, k: torch.Tensor, sens: torch.Tensor, mask: torch.Tensor, n_iter: int, save_every: int,
         activate_flow_after: int = 0, batch_size: int = -1, monitor_every: int = -1,
         monitor_gt: np.ndarray | None = None, trajectory: torch.Tensor | None = None,
-        radial_operator: str = 'grid',
+        radial_operator: str = 'grid', support_mask: torch.Tensor | None = None, lambda_support: float = 0,
     ):
         if batch_size <= 0 or batch_size > k.shape[0]:
             batch_size = k.shape[0]
@@ -326,12 +326,19 @@ class MDIP:
             # basis (dictionary item) loss
             basis_loss = self.basis_loss(basis, dims=(1, 2))
 
+            # penalize image energy outside support without masking the forward model
+            support_loss = torch.zeros((), dtype=cine.real.dtype, device=cine.device)
+            if support_mask is not None and lambda_support > 0:
+                outside_support = 1 - support_mask
+                support_loss = torch.mean(torch.abs(cine * outside_support) ** 2)
+
             # total loss
             total_loss = kspace_loss \
                 + self.lambda_flow_spatial * flow_loss_spatial \
                 + self.lambda_flow_temporal * flow_loss_temporal \
                 + self.lambda_zt * zt_loss \
-                + self.lambda_basis * basis_loss
+                + self.lambda_basis * basis_loss \
+                + lambda_support * support_loss
             total_loss.backward()
 
             # save loss terms
@@ -340,6 +347,7 @@ class MDIP:
             self.metrics['flow_loss_temporal'].append(flow_loss_temporal.item())
             self.metrics['zt_loss'].append(zt_loss.item())
             self.metrics['basis_loss'].append(basis_loss.item())
+            self.metrics['support_loss'].append(support_loss.item())
             self.metrics['total_loss'].append(total_loss.item())
 
             # residual

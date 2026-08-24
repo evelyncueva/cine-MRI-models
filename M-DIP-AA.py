@@ -53,6 +53,7 @@ def parse_args():
     parser.add_argument('--lambda-flow-temporal', type=float, default=0.05)
     parser.add_argument('--lambda-zt', type=float, default=0)
     parser.add_argument('--lambda-basis', type=float, default=0)
+    parser.add_argument('--lambda-support', type=float, default=0, help='Penalty for image energy outside hollow_mask.')
     parser.add_argument('--ksp-scale', type=float, default=100)
     parser.add_argument('--monitor-every', type=int, default=50, help='Metric interval when reference data is present.')
     parser.add_argument(
@@ -86,6 +87,8 @@ def save_loss_plot(mdip: MDIP):
         plt.semilogy(mdip.metrics['zt_loss'], linewidth=0.6, label='$L_{zt}$')
     if mdip.lambda_basis > 0:
         plt.semilogy(mdip.metrics['basis_loss'], linewidth=0.6, label='$L_b$')
+    if any(v > 0 for v in mdip.metrics.get('support_loss', [])):
+        plt.semilogy(mdip.metrics['support_loss'], linewidth=0.6, label='$L_{support}$')
     plt.legend()
     plt.title('Loss')
     plt.subplot(122)
@@ -137,6 +140,9 @@ def main():
     m = data.m.astype(np.int8)[:, 0]
     sens_maps = data.estimate_sens_maps(k)
     trajectory = data.trajectory_for_slice
+    support_mask = data.hollow_mask.astype(np.float32) if data.hollow_mask is not None else None
+    if args.lambda_support > 0 and support_mask is None:
+        raise ValueError('--lambda-support requires hollow_mask in the input .npz file')
 
     img_avg = data.coil_images(k)
     plotting.plot_multichannel(
@@ -188,6 +194,7 @@ def main():
     m_tor = torch.from_numpy(m)[:, None].to(dtype=dtype)
     sen_tor = torch.from_numpy(sens_maps).to(dtype=torch.promote_types(dtype, torch.complex32))
     trajectory_tor = torch.from_numpy(trajectory).to(dtype=dtype)
+    support_mask_tor = torch.from_numpy(support_mask).to(dtype=dtype) if support_mask is not None else None
 
     zs = torch.empty(1, args.zs_chans, *code_vector_size, dtype=dtype).uniform_(0, 0.1)
     zt = torch.zeros(data.n_phases, args.zt_chans, dtype=dtype)
@@ -241,6 +248,8 @@ def main():
         monitor_gt=data.ground_truth[args.slice_idx] * args.ksp_scale / k_max if has_reference else None,
         trajectory=trajectory_tor.to(device=device),
         radial_operator=args.radial_operator,
+        support_mask=support_mask_tor.to(device=device) if support_mask_tor is not None else None,
+        lambda_support=args.lambda_support,
     )
     mdip.save()
     save_loss_plot(mdip)
