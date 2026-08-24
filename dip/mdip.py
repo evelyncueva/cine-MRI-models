@@ -46,6 +46,7 @@ def _sample_nufft(
     image = cine[:, None]
     smaps = sens[None].expand(n_frames, -1, -1, -1)
     k_pred = nufft_op(image, ktraj, smaps=smaps)
+    k_pred = k_pred / np.sqrt(cine.shape[-2] * cine.shape[-1])
     return k_pred.reshape(n_frames, sens.shape[0], *trajectory.shape[1:3])
 
 
