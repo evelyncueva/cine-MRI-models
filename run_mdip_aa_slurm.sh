@@ -65,7 +65,7 @@ LAMBDA_FLOW_TEMPORALS=(
   "0.05"
 )
 N_BASES_LIST=(
-  "16"
+  "4"
 )
 
 mkdir -p "${RESULTS_ROOT}"
