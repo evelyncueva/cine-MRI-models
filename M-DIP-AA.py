@@ -43,6 +43,10 @@ def parse_args():
     parser.add_argument('--n-bases', type=int, default=16, help='Number of spatial bases.')
     parser.add_argument('--zs-chans', type=int, default=2, help='Static code vector channels.')
     parser.add_argument('--zt-chans', type=int, default=4, help='Temporal code vector channels.')
+    parser.add_argument(
+        '--zt-init', choices=('zeros', 'periodic'), default='periodic',
+        help='Temporal code initialization. periodic uses cosine/sine cardiac-cycle harmonics.',
+    )
     parser.add_argument('--p-dropout', type=float, default=0)
     parser.add_argument('--noise-reg', type=float, default=0.05)
     parser.add_argument('--lr-max', type=float, default=1e-3)
@@ -61,6 +65,23 @@ def parse_args():
         help='Radial data-consistency operator. grid matches the ST-DIP FFT + bilinear sampler.',
     )
     return parser.parse_args()
+
+
+def initialize_zt(n_frames: int, zt_chans: int, dtype: torch.dtype, mode: str) -> torch.Tensor:
+    if mode == 'zeros':
+        return torch.zeros(n_frames, zt_chans, dtype=dtype)
+    if mode != 'periodic':
+        raise ValueError(f'Unknown zt initialization: {mode}')
+
+    t = torch.arange(n_frames, dtype=dtype) / n_frames
+    channels = []
+    harmonic = 1
+    while len(channels) < zt_chans:
+        channels.append(torch.cos(2 * torch.pi * harmonic * t))
+        if len(channels) < zt_chans:
+            channels.append(torch.sin(2 * torch.pi * harmonic * t))
+        harmonic += 1
+    return torch.stack(channels, dim=1)
 
 
 def build_output_path(out_folder: str, filename: str, slice_idx: int) -> Path:
@@ -197,7 +218,7 @@ def main():
     support_mask_tor = torch.from_numpy(support_mask).to(dtype=dtype) if support_mask is not None else None
 
     zs = torch.empty(1, args.zs_chans, *code_vector_size, dtype=dtype).uniform_(0, 0.1)
-    zt = torch.zeros(data.n_phases, args.zt_chans, dtype=dtype)
+    zt = initialize_zt(data.n_phases, args.zt_chans, dtype, args.zt_init)
 
     params = vars(args).copy()
     with open(output_path / 'params.yaml', 'w') as f:

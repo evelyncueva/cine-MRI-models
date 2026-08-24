@@ -40,6 +40,7 @@ RADIAL_OPERATOR="${RADIAL_OPERATOR:-grid}"
 
 ZS_CHANS="${ZS_CHANS:-2}"
 ZT_CHANS="${ZT_CHANS:-4}"
+ZT_INIT="${ZT_INIT:-periodic}"
 P_DROPOUT="${P_DROPOUT:-0}"
 NOISE_REG="${NOISE_REG:-0.05}"
 LR_MIN="${LR_MIN:-1e-6}"
@@ -128,6 +129,7 @@ ACTIVATE_FLOW_AFTER=${ACTIVATE_FLOW_AFTER}
 N_BASES=${N_BASES}
 ZS_CHANS=${ZS_CHANS}
 ZT_CHANS=${ZT_CHANS}
+ZT_INIT=${ZT_INIT}
 P_DROPOUT=${P_DROPOUT}
 NOISE_REG=${NOISE_REG}
 LAMBDA_FLOW_SPATIAL=${LAMBDA_FLOW_SPATIAL}
@@ -153,6 +155,7 @@ EOF
             --n-bases "${N_BASES}" \
             --zs-chans "${ZS_CHANS}" \
             --zt-chans "${ZT_CHANS}" \
+            --zt-init "${ZT_INIT}" \
             --p-dropout "${P_DROPOUT}" \
             --noise-reg "${NOISE_REG}" \
             --lambda-flow-spatial "${LAMBDA_FLOW_SPATIAL}" \
