@@ -572,25 +572,25 @@ class RadialTrainDataset(Dataset):
         self._trajectory_sigpy = np.zeros_like(self.trajectory)
         self._k_t = np.full((1, n_frames, max_spokes), -1, dtype=np.float64)
 
-        readout = np.linspace(-1, 1, n_readout, dtype=np.float32)
-        readout_sigpy = readout * n_readout / 2
+        readout = -np.fft.fftshift(np.fft.fftfreq(n_readout) * n_readout).astype(np.float32)
+        readout_sigpy = readout
         for frame, frame_id in enumerate(frame_ids):
             spoke_idx = np.flatnonzero(frame_values == frame_id)
             n_spokes = len(spoke_idx)
             self._k[0, frame, :, :, :n_spokes] = y_data[spoke_idx, :, :, 0].transpose(1, 2, 0)
 
             theta = angles[spoke_idx]
-            coords = -np.stack(
+            coords = np.stack(
                 [
-                    readout[:, None] * np.cos(theta)[None],
                     readout[:, None] * np.sin(theta)[None],
+                    readout[:, None] * np.cos(theta)[None],
                 ],
                 axis=-1,
             )
-            coords_sigpy = -np.stack(
+            coords_sigpy = np.stack(
                 [
-                    readout_sigpy[:, None] * np.cos(theta)[None],
                     readout_sigpy[:, None] * np.sin(theta)[None],
+                    readout_sigpy[:, None] * np.cos(theta)[None],
                 ],
                 axis=-1,
             )

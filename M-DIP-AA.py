@@ -57,8 +57,8 @@ def parse_args():
     parser.add_argument('--ksp-scale', type=float, default=100)
     parser.add_argument('--monitor-every', type=int, default=50, help='Metric interval when reference data is present.')
     parser.add_argument(
-        '--radial-operator', choices=('nufft', 'grid'), default='nufft',
-        help='Radial data-consistency operator. Use nufft for reconstruction quality; grid is a fast approximation.',
+        '--radial-operator', choices=('grid', 'nufft'), default='grid',
+        help='Radial data-consistency operator. grid matches the ST-DIP FFT + bilinear sampler.',
     )
     return parser.parse_args()
 

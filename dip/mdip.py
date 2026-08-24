@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.types
 from tqdm import tqdm
 
@@ -17,21 +16,48 @@ from .loss import TVLoss
 
 
 def _sample_fft_grid(k_grid: torch.Tensor, trajectory: torch.Tensor) -> torch.Tensor:
-    """Sample Cartesian FFT data at normalized radial coordinates.
+    """Sample centered Cartesian FFT data at radial pixel coordinates.
 
     Args:
         k_grid: Complex Cartesian k-space, [frame, coil, x, y].
-        trajectory: Normalized coordinates in [-1, 1], [frame, readout, spoke, 2].
+        trajectory: Coordinates stored as (ky, kx), [frame, readout, spoke, 2].
     """
-    n_frames, n_coils = k_grid.shape[:2]
-    grid = trajectory.reshape(n_frames, -1, 1, 2)
+    n_frames, _, h, w = k_grid.shape
+    coords = trajectory.reshape(n_frames, -1, 2)
+    kx = coords[..., 1]
+    ky = coords[..., 0]
+
+    x = kx + w / 2.0
+    y = ky + h / 2.0
+
+    x0 = torch.floor(x).to(torch.int64)
+    x1 = x0 + 1
+    y0 = torch.floor(y).to(torch.int64)
+    y1 = y0 + 1
+
+    x0 = torch.clamp(x0, 0, w - 1)
+    x1 = torch.clamp(x1, 0, w - 1)
+    y0 = torch.clamp(y0, 0, h - 1)
+    y1 = torch.clamp(y1, 0, h - 1)
+
     sampled = []
-    for coil in range(n_coils):
-        channel = torch.view_as_real(k_grid[:, coil]).permute(0, 3, 1, 2)
-        channel_sampled = F.grid_sample(channel, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
-        channel_sampled = channel_sampled[:, :, :, 0].permute(0, 2, 1).contiguous()
-        sampled.append(torch.view_as_complex(channel_sampled))
-    return torch.stack(sampled, dim=1).reshape(n_frames, n_coils, *trajectory.shape[1:3])
+    for frame in range(n_frames):
+        ia = k_grid[frame, :, y0[frame], x0[frame]]
+        ib = k_grid[frame, :, y1[frame], x0[frame]]
+        ic = k_grid[frame, :, y0[frame], x1[frame]]
+        id_ = k_grid[frame, :, y1[frame], x1[frame]]
+
+        x0f = x0[frame].to(x.dtype)
+        x1f = x1[frame].to(x.dtype)
+        y0f = y0[frame].to(y.dtype)
+        y1f = y1[frame].to(y.dtype)
+        wa = ((x1f - x[frame]) * (y1f - y[frame]))[None]
+        wb = ((x1f - x[frame]) * (y[frame] - y0f))[None]
+        wc = ((x[frame] - x0f) * (y1f - y[frame]))[None]
+        wd = ((x[frame] - x0f) * (y[frame] - y0f))[None]
+        sampled.append(wa * ia + wb * ib + wc * ic + wd * id_)
+
+    return torch.stack(sampled).reshape(n_frames, k_grid.shape[1], *trajectory.shape[1:3])
 
 
 def _sample_nufft(
